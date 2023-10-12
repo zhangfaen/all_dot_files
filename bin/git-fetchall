@@ -1,0 +1,94 @@
+#!/usr/bin/env sh
+# Run `git fetch` on all repos under the current dir in parallel
+#
+# Usage:
+#
+#     git fetchall
+#
+# With ssh pipelining:
+#
+#     git fetchall "git@github.com"
+
+NAME=$(basename "$0")
+TEMP="${TMPDIR-/tmp}/${NAME}.${$}.$(awk \
+    'BEGIN {srand(); printf "%d\n", rand() * 10^10}')"
+REPO_CACHE="${TEMP}/fetchall.txt"
+
+ControlPath='~/.ssh/master-%r@%h:%p'
+
+trap '
+    excode=$?; trap - EXIT;
+    rm -f '"$REPO_CACHE"'
+    exit $excode
+' INT TERM EXIT
+
+_wait_for_ssh () {
+    # Block until a multiplexed ssh connection is ready
+    #
+    # Useful for making a single ssh connection that can be reused for many ssh
+    # operations.
+    #
+    # Usage:
+    #   SSH="me@example.com"
+    #   trap 'ssh -O exit '${SSH} SIGINT SIGTERM EXIT
+    #   ssh -N ${SSH} &
+    #   _wait_for_ssh ${SSH}
+    #   ...use multiplexed ssh connection here...
+
+    local ssh="${1?:ssh hostname required}"
+
+    printf 'Connecting to "%s".\n' "$ssh"
+    while ! ssh -q -S "$ControlPath" -O check ${ssh} true 2>/dev/null; do
+        printf '.' ; sleep 0.5;
+    done
+    printf '\nConnected!\n'
+}
+
+main() {
+    while getopts h opt; do
+        case $opt in
+        h) awk 'NR == 1 { next } /^$/ { exit } { print substr($0, 3) }' "$0"
+           exit ;;
+        esac
+    done
+    shift $(( OPTIND - 1 ))
+
+    local SSH_URI="$1"
+    test $# -gt 0 && shift 1
+
+    mkdir -p "$TEMP"
+    trap '
+        excode=$?; trap - EXIT;
+        rm -rf -- '"$TEMP"'
+        exit $excode
+    ' INT TERM EXIT
+
+    printf 'Looking for Git repos: '
+
+    lr -0Ut 'name == "HEAD"' \
+        | xe -0 -s 'd=${1%/*}
+            test -O "$d"/refs -a -O "$d"/objects && printf "%s\0" "$d"' \
+        | tee "$REPO_CACHE" \
+        | awk '
+            BEGIN { RS="\0" }
+            { printf("\033[2K\033[1GLooking for Git repos: %s", NR) }
+            END { printf("\n") }
+        '
+
+    if [ -n "$SSH_URI" ]; then
+        ssh -q -M -S "$ControlPath" -N ${SSH_URI} &
+        _wait_for_ssh ${SSH_URI}
+    fi
+
+    < "$REPO_CACHE" xe -v -0 -j5 -s 'git --git-dir="$1" fetch --all'
+
+    if [ -n "$SSH_URI" ]; then
+        ssh -q -S "$ControlPath" -O exit "$SSH_URI"
+    fi
+
+    < "$REPO_CACHE" xe -0 \
+        | wc -l \
+        | xe printf 'Fetched upstream changes for %s repos.\n'
+}
+
+main "$@"

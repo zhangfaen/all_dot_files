@@ -1,0 +1,28 @@
+# Custom values for GNU units
+#
+# Usage:
+#     units -t1 '16 billion dollars' 'instagrams'
+#     units -t1 '15 minutes' 'milli seconds'
+#
+# Check the FILES section in the manpage for all the pre-defined units.
+
+# Monetary units
+instagram 1 billion dollars
+
+# Pop culture units
+lotr_marathon 673 minutes
+hobbit_marathon 498 minutes
+tolkien_marathon lotr_marathon + hobbit_marathon
+
+# Sizes
+olympic_pool_length 50 meter
+olympic_pool_volume 660430 gallons
+water_drops 0.05 ml
+
+# Weights
+suv 4300 pounds
+elephant 7 tons
+
+# Speed
+usain_bolt 27.8 mph
+ant 3 inches per second

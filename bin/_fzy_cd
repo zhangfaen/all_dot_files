@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+# Use a fuzzy-finder to complete child directories
+
+cmd="$1"; shift 1
+flr "${2:-.}" -t 'type == d' | fzy -p "Directories > " -q "$*" \
+    | xe printf '%s %s\n' "$cmd"

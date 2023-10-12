@@ -1,0 +1,14 @@
+#!/bin/bash
+# Use $EDITOR to edit text inside a pipeline
+#
+# https://www.uninformativ.de/git/bin-pub/file/vipe.html
+#
+# Write all data to a temporary file, edit that file, then print it
+# again.
+
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' 0
+
+cat >"$tmp"
+${EDITOR:-vim} "$tmp" </dev/tty >/dev/tty
+cat "$tmp"

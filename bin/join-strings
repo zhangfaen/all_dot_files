@@ -1,0 +1,24 @@
+#!/usr/bin/env sh
+# Join strings together with a delimiter
+#
+# This is sometimes preferable to `paste -d',' - - -` because the number of
+# fields does not need to be known in advance and whitespace is preserved.
+#
+# Usage:
+#
+#   printf '%s\n' foo bar baz | join-strings
+#   printf '%s\n' foo bar baz | join-strings '-'
+
+while getopts h opt; do
+    case $opt in
+    h) awk 'NR == 1 { next } /^$/ { exit } { print substr($0, 3) }' "$0"
+       exit ;;
+    esac
+done
+shift $(( OPTIND - 1 ))
+
+awk -v delim="${1-, }" '
+    BEGIN { isep = "" }
+    { printf("%s%s", isep, $0); isep=delim }
+    END { printf("\n") }
+'

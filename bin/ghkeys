@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+# Display GitHub public keys for a user
+# http://leahneukirchen.org/dotfiles/.zshrc
+
+curl https://github.com/${1:?'Missing username'}.keys
+printf '\n'
+curl https://github.com/${1:?'Missing username'}.gpg

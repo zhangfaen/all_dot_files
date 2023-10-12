@@ -1,0 +1,92 @@
+#!/usr/bin/env sh
+# Calculate a color value for the current time to gradually red-shift via cron
+#
+# Run every minute between 7pm and 6am.
+# DISPLAY=:0.0
+# */1 19-23 * * * $HOME/bin/nightmode
+# */1 00-06 * * * $HOME/bin/nightmode
+#
+# Test to see all values for all times:
+# seq -f '%04g' 0 2359 | xargs -L1 nightmode
+
+# Return evenly spaced numbers over a specified interval.
+# (A linearly spaced vector)
+exec awk '
+function linspace(ret, start, stop, num, i) {
+    for (i = 0; i < num; i += 1) {
+        ret[sprintf("%02d", i)] = \
+            sprintf("%.0f", start + i * (stop - start) / (num - 1))
+    }
+}
+
+# E.g.: 1.0 -> 256
+function float2rbg(f) { return sprintf("%2.0f", f * 255.999) }
+
+# E.g.: 256, 256, 256 -> 16843008
+function rgb2int(r, g, b) {
+    return (lshift(r, 16) + lshift(g, 8) + b)
+}
+
+# E.g.: 16843008 -> 256, 256, 256
+function int2rgb(ret, C) {
+    ret["b"] = and(C, 255.999)
+    ret["g"] = and(rshift(C, 8), 255.999)
+    # ??? why doesnt this work?
+    # ret["r"] = and(rshift(C, 16), 255.999)
+    ret["r"] = (C - ret["b"] - ret["g"] * 256) / (256 * 256)
+}
+
+# E.g.: 256 -> 1.0
+function rgb2float(c) {
+    return sprintf("%2.1f", c / 255.999)
+}
+
+BEGIN {
+    color_min = rgb2int(float2rbg(1.1), float2rbg(0.8), float2rbg(0.7))
+    color_max = rgb2int(float2rbg(1), float2rbg(1), float2rbg(1))
+
+    fade_in_start = 1900
+    fade_in_end = 1959
+    fade_out_start = 500
+    fade_out_end = 559
+
+    if (ARGV[1] != "") {
+        now = ARGV[1]
+    } else {
+        date = "date +%k%M"
+        date | getline now
+        close(date)
+    }
+
+    mins = substr(now, length(now) - 1)
+
+    if (now >= fade_in_start && now <= fade_in_end) {
+        # Fading in
+        linspace(mins_lookup, color_min, color_max, 60)
+        r_mins = sprintf("%02d", 60 - mins - 1)
+        value =  mins_lookup[r_mins]
+    } else if (now >= fade_out_start && now <= fade_out_end) {
+        # Fading out
+        linspace(mins_lookup, color_min, color_max, 60)
+        value =  mins_lookup[mins]
+    } else if (now > fade_in_end || now < fade_out_start) {
+        # On
+        value =  color_min
+    } else if (now > fade_out_end || now < fade_in_start) {
+        # Off
+        value =  ""
+    }
+
+    int2rgb(rgbs, value)
+    gamma = sprintf("%s:%s:%s",
+        rgb2float(rgbs["r"]),
+        rgb2float(rgbs["g"]),
+        rgb2float(rgbs["b"]))
+
+    if (ARGV[1] != "") {
+        print now, gamma
+    } else {
+        system("xrandr --output DP1 --gamma " gamma)
+    }
+}
+'

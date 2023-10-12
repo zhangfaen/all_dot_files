@@ -1,0 +1,45 @@
+#!/usr/bin/env sh
+# Paginate individual Git commits as separate files in $PAGER
+#
+# Git outputs a range of commits all together which makes scrolling to the top
+# or bottom of a single commit troublesome since you have to manually look or
+# search for the commit separators. This script opens each commit separately so
+# you can scroll to the top or bottom of a diff with `g` or `G`, and move back
+# and forth between individual commits with `:n` and `:p`.
+#
+# Examples:
+#
+# Show diffs for all outgoing changes not yet pushed to origin:
+#
+#    git pagediffs @{u}..
+#
+# Show diffs for all changes not yet present on the current branch, excluding
+# merges, and ignoring a specific branch:
+#
+#     git pagediffs ..origin/somebranch --no-merges --not uninteresting_branch
+
+while getopts h opt; do
+    case $opt in
+    h) awk 'NR == 1 { next } /^$/ { exit } { print substr($0, 3) }' "$0"
+       exit ;;
+    esac
+done
+shift $(( OPTIND - 1 ))
+
+NAME=$(basename "$0")
+TEMP="${TMPDIR-/tmp}/${NAME}.${$}.$(awk \
+    'BEGIN {srand(); printf "%d\n", rand() * 10^10}')"
+
+trap '
+    excode=$?; trap - EXIT;
+    rm -rf -- '"$TEMP"'
+    exit $excode
+' INT TERM EXIT
+
+mkdir -p -m 700 "$TEMP"
+
+git sh --reverse --color=always --color-moved "$@" |
+    csplit -s -n 4 -f "${TEMP}/xx" - '/^\[33mcommit /' '{*}'
+
+rm -f -- "${TEMP}/xx0000"
+$PAGER -R "${TEMP}/xx"*

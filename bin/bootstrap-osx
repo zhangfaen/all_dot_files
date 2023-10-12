@@ -1,0 +1,43 @@
+#!/usr/bin/env sh
+# Bootstrap a new OS X machine
+
+# Install xcode CLI tools.
+xcode-select --install
+
+# Install Homebrew.
+/usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+
+$HOME/bin/bootstrap-yt-dlp
+
+# Install the baseline packages.
+xe -N0 /usr/local/bin/brew install < $HOME/opt/packages-brew
+
+printf '
+android-platform-tools
+gimp
+virtualbox
+vlc
+xquartz
+' | xe -N0 /usr/local/bin/brew cask install
+
+# Fix the cache path for man-db from Brew then generate it.
+/usr/local/bin/gsed -i -e \
+    '/^MANDB_MAP/ s|/var/cache|/usr/local/var/cache|' \
+    /usr/local/etc/man_db.conf
+mandb -c
+
+# Make yourself at home.
+printf 'Adding zsh to /etc/shells (enter password):\n'
+sudo printf '/usr/local/bin/zsh\n' >> /etc/shells
+chsh -s /usr/local/bin/zsh
+
+( cd $HOME; ln -s .zsh_customize-brew .zsh_customize; )
+( cd $HOME/bin; ln -s osx-notify-send notify-send; ln -s osx-xclip xclip; )
+
+# Install script that toggles Wifi on and off.
+$HOME/bin/osx-toggle-interfaces install_plist
+
+printf '
+All set (hopefully).
+Install your font of choice and all the unscriptable OSX apps and settings.
+'

@@ -1,0 +1,28 @@
+#!/usr/bin/env sh
+# Make a bunch of tiled tmux panes via find -exec or xargs
+#
+# Needed because select-layout is needed after each split-window to retain
+# a tiled layout. Toggle remain-on-exit beforehand as desired.
+#
+# Examples:
+#
+# echo app{1..10}.example.com | xargs -n1 tmux-tiled ssh
+# FIXME: cal will scroll the content off-screen in some panes. Why?
+# echo jan mar april | xargs -n1 tmux-tiled cal -m
+# echo {2015..2019} | xargs -n1 tmux-tiled cal -y
+
+while getopts h opt; do
+    case $opt in
+    h) awk 'NR == 1 { next } /^$/ { exit } { print substr($0, 3) }' "$0"
+       exit ;;
+    esac
+done
+shift $(( OPTIND - 1 ))
+
+INITIAL_PANE="$(tmux display -p '#{pane_id}')"
+
+tmux splitw -l 4 -b "$@"
+tmux selectp -T "$*"
+tmux selectl tiled
+
+tmux selectp -t "$INITIAL_PANE"

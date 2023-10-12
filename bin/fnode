@@ -1,0 +1,76 @@
+#!/usr/bin/env sh
+# Use a fuzzy-finder to select and install a NodeJS version
+#
+# Previous downloads and installs are available in NODE_DIR and can be manually
+# modified or removed there. Tries to only show valid downloads for the current
+# platform and tries to avoid downloading or decompressing versions that are
+# already available.
+#
+# Usage:
+#
+#     export PATH="$PATH:$HOME/.nodejs/nodejs/bin"
+#     NODE_MIRROR='https://nodejs.org/dist' NODE_DIR="$HOME/.nodejs" fnode
+
+while getopts h opt; do
+    case $opt in
+    h) awk 'NR == 1 { next } /^$/ { exit } { print substr($0, 3) }' "$0"
+       exit ;;
+    esac
+done
+shift $(( OPTIND - 1 ))
+
+NODE_MIRROR="${NODE_MIRROR:-"https://nodejs.org/dist"}"
+NODE_DIR="${NODE_DIR:-"${HOME}/.nodejs"}"
+
+export PATH="${PATH}:${HOME}/${NODE_DIR}/nodejs/bin"
+mkdir -p "$NODE_DIR/versions"
+mkdir -p "$NODE_DIR/downloads"
+cd "$NODE_DIR/downloads"
+
+curl -sS "${NODE_MIRROR}/index.tab" |
+awk -v os="$(uname)" -v arch="$(uname -m)" '
+    BEGIN {
+        os = tolower(os)
+        if (arch == "x86_64") arch = "x64"
+        else if (arch == "i386") arch = "x86"
+        else if (arch == "aarch64") arch = "arm64"
+
+        release = (os == "darwin" ? "osx" : os) "-" arch
+    }
+
+    function printrel(v, n) {
+        print n "\t" v "/node-" v "-" os "-" arch ".tar.gz"
+    }
+
+    NR == 1 { next }
+
+    !latest && $10 == "-" { latest = $1 }
+    !lts && $10 != "-" { lts = $1 }
+
+    $3 ~ release {
+        if ($1 == latest) printrel($1, "latest")
+        if ($1 == lts) printrel($1, "LTS")
+        printrel($1, ($10 ~ "-" ? "" : $10))
+    }
+' |
+    fzy -p 'Node > ' |
+    cut -f 2 |
+    xe printf '%s/%s\n' "$NODE_MIRROR" |
+    xe curl -# -C - -O -w '%{filename_effective}\n' |
+    {
+        read -r vfile
+        if [ -z "$vfile" ]; then
+            exit 1
+        fi
+
+        ver=$(basename "$vfile" '.tar.gz')
+        vdir="${NODE_DIR}/versions/${ver}"
+
+        if [ ! -d "$vdir" ]; then
+            mkdir -p "$vdir"
+            tar --strip-components=1 -C "$vdir" -xf "$vfile"
+        fi
+
+        ln -sfn "$vdir" "${NODE_DIR}/nodejs"
+        node --version;
+    }

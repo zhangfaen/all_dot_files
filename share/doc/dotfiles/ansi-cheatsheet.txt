@@ -1,0 +1,69 @@
+# ANSI Codes
+
+Prefix with escape code:
+- printf: `\e`
+- awk: `\033`
+
+## Common movement
+
+```
+Cursor up: [{n}A
+Cursor down: [{n}B
+Cursor right: [{n}C
+Cursor left: [{n}D
+
+Next line: [{n}E
+Prev line: [{n}F
+
+Set column: [{x}G
+Set position: [{x};{y}H
+
+Clear screen: [{n}J
+    n=0 from cursor until end of screen,
+    n=1 from cursor to beginning of screen
+    n=2 entire screen
+
+Clear line: [{n}K
+    n=0 from cursor to end of line
+    n=1 from cursor to start of line
+    n=2 entire line
+
+Save position: [s
+Restore position: [u
+
+Hide: [?25l
+Show: [?25h
+
+Color: [{a};{b};{f}m
+    a - attribute
+          0 normal
+          1 bold
+          2 dim
+          4 underlined
+          5 blink
+          7 reverse
+          8 hidden
+    b - background color
+    f - foreground color
+
+Reset:
+    0  All
+    21 bold/bright
+    22 dim
+    24 underlined
+    25 blink
+    27 reverse
+    28 hidden
+
+Foreground color (30 - 37): [{n}m
+Reset foreground color: [39m
+
+Background color (40 - 47): [{n}m
+Reset background color: [49m
+
+Underline on: [4m
+Underline off: [24m
+
+Bold on: [1m
+Bold off: [21m
+```

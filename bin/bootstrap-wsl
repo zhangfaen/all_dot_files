@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+# Bootstrap a WSL Ubuntu install
+
+# Install baseline packages.
+xe -N0 apt install -y < $HOME/opt/packages-wsl
+
+update-locale LANG=en_US.utf8
+
+winuser="$(wslvar 'username')"
+winpath="/mnt/c/Users/${winuser}"
+for dir in Documents Downloads Music Videos; do
+    dirpath="$winpath/${dir}"
+    if [ -d "$dirpath" ]; then
+        ln -s "$dirpath" "$HOME"
+    fi
+done
+
+$HOME/bin/bootstrap-yt-dlp

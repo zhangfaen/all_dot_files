@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+# Use a fuzzy-finder to complete manpage names
+
+cmd="$1"; shift 1
+man -k . | fzy -p 'Manpages > ' -q "$*" | awk -F, -v cmd="$cmd" '
+function ltrim(s) { sub(/^[ \t\r\n]+/, "", s); return s }
+{
+    sub(/\s+- .*$/, "", $0)
+    manpage = ltrim($1)
+    sectidx = match(manpage, /\(.*\)$/)
+    section = substr(manpage, sectidx + 1, length(manpage) - sectidx - 1)
+    title = substr(manpage, 1, sectidx - 1)
+    print cmd, section, title
+}'

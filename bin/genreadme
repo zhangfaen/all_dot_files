@@ -1,0 +1,14 @@
+#!/bin/sh
+# Generate a README for all ~/bin scripts
+
+lr -1U0 -t 'type == f' ~/bin |
+    xe -0 awk '
+    NR == 1 && !/^#!/ { nextfile }
+    /^#?[a-zA-Z ]+/ {
+        sub(/^# /, "", $0)
+        sub(/^.*\//, "", FILENAME)
+        print FILENAME " -- " $0
+        nextfile
+    }
+    ' |
+    sort

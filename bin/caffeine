@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+# Prevent the screensaver from activating or the screen from sleeping
+#
+# Useful when giving presentations or watching movies or just when you want to
+# keep the display running. Ctrl-c to quit.
+
+xset -dpms
+trap 'xset +dpms' SIGINT SIGTERM EXIT
+while true; do
+    xset s reset
+    xscreensaver-command -deactivate 1> /dev/null 2> /dev/null
+    sleep ${1:-60} || break
+done

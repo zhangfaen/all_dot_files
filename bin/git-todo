@@ -1,0 +1,91 @@
+#!/usr/bin/env sh
+# Store a todo list in any Git repository
+#
+# A semi-port of the excellent t to use Git as storage.
+# https://github.com/sjl/t
+#
+# The todos are stored as namespaced refs. The namespace default namespace can
+# be overridden by setting TODO_NS.
+#
+# Setup: either the CWD should be a Git repo or the GIT_DIR variable should
+# point to a Git repo used to store the todo list.
+#
+# Usage: run without args to add a new todo item; run with -h to see args.
+
+NAME=$(basename "$0")
+TODO_NS=${TODO_NS:-'todo'}
+
+add() {
+    # local in="$*"
+
+    # if [ $in = *$'\n'* ]; then
+    #     printf 'TODOs cannot be multi-line.\n' 1>&2
+    #     exit 1
+    # fi
+
+    printf '%s' "$*" \
+        | git hash-object --stdin -w \
+        | xe -p % git update-ref "refs/${TODO_NS}/%" %
+}
+
+list() {
+    git for-each-ref --format '%(refname:lstrip=2) %(objectname:short=4)' "refs/todo" \
+        | git cat-file --batch='%(rest) XXX' \
+        | awk '
+        /XXX$/ { printf("%s", $1); sha = $1; pad = 0 }
+        !/XXX$/ {
+            printf("%*s%s\n", pad, " ", $0)
+            pad = length(sha) + 1
+        }
+        '
+}
+
+del() {
+    local id="${1:?Todo ID is required.}"
+    git rev-parse "$id" \
+        | xe -p % git update-ref -d "refs/${TODO_NS}/%" %
+}
+
+help() {
+    cat <<-EOF
+	Usage: ${NAME} [<flags>] [*<arg>]
+
+	List all todos: ${NAME}
+
+	Add a new todo: ${NAME} Walk the plants.
+	              : ${NAME} Water the dog.
+
+	Flag        | Description
+	----------- | -----------
+	-d <hash>   | Delete a todo by hash.
+	-h          | Show this screen.
+	-x          | Enable xtrace debug logging.
+
+	Flags _must_ be the first argument to ${NAME}.
+EOF
+}
+
+main() {
+    local cmd
+    local opt
+    local OPTARG
+    local OPTIND
+
+    if [ $# -eq 0 ]; then
+        cmd='list'
+    else
+        while getopts hd opt; do
+            case $opt in
+                h) cmd='help';;
+                d) cmd='del';;
+            esac
+        done
+        shift $(( OPTIND - 1 ))
+
+        cmd="${cmd:-add}"
+    fi
+
+    "$cmd" "$@"
+}
+
+main "$@"

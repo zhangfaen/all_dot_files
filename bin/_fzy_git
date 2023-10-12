@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+# Use a fuzzy-finder to complete Git refs
+
+{
+    git branch --format='%(refname:short)' --sort=-committerdate;
+    git branch --format='%(refname:short)' --sort=-committerdate -r;
+} \
+    | fzy -p 'Git refs > ' \
+    | xe printf '%s %s' "$*"

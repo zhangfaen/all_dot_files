@@ -1,0 +1,5 @@
+#!/bin/sh
+# Count occurrences of the same line in a file
+# http://leahneukirchen.org/dotfiles/bin/count
+
+sort "$@" | uniq -c | sort -n -r

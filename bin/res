@@ -1,0 +1,24 @@
+#!/usr/bin/env sh
+# Output an xrandr command for common configurations
+# Only outputs, not executes, the command so it can be edited beforehand.
+
+while getopts h opt; do
+    case $opt in
+    h) awk 'NR == 1 { next } /^$/ { exit } { print substr($0, 3) }' "$0"
+       exit ;;
+    esac
+done
+shift $(( OPTIND - 1 ))
+
+fzy << EOF | awk 'BEGIN { FS="\t+" } { print $2 }' | xe tmux send xrandr Space {}
+Auto		--auto
+Desktop		--output eDP-1 --off --output DP-1 --primary --preferred --rotate normal
+Livingroom	--output eDP-1 --off --output DP-1 --primary --mode 1360x768
+Bedroom		--output eDP-1 --off --output DP-1 --primary --mode 1920x1080
+Notebook	--auto --output eDP-1 --transform none --rotate right
+Netbook		--auto --output eDP-1 --primary --preferred --scale 0.5x0.5 --rotate right
+Present		--output DP-1 --mode 1024x768 --output eDP-1 --scale-from 1024x768
+Reset		--auto --output eDP-1 --primary --preferred --transform none --rotate normal
+Underscan	--output DP-1 --transform 0.80,0,-35,0,1.04,-19,0,0,1
+Work		--output eDP-1 --off --output DP-1 --primary --preferred --rotate left
+EOF

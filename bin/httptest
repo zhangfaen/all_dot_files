@@ -1,0 +1,460 @@
+#!/usr/bin/env sh
+# A local HTTP server with many endpoints to test HTTP request/responses
+#
+# Largely modeled after httpbin.org.
+
+NAME=$(basename "$0")
+crlf=$(printf '\r\n')
+
+help () {
+    # Extract contiguous lines of comments in a function as help text
+
+    awk -v cmd="${1:?'Command name required.'}" -v NAME="$NAME" '
+    $0 ~ "^" cmd "\\s*\\(\\)\\s*{" { is_found=1; next }
+    is_found && !NF { exit }
+    is_found { gsub(/^\s*#\s?/, ""); gsub(/NAME/, NAME); print; }
+    ' "$0"
+}
+
+_all_funcs () {
+    # List all public function names in the current file
+
+    awk '$1 !~ /^_/ && /^[a-zA-Z0-9_]+\s*\(\)/ { print $1 }' "$0"
+}
+
+_mk_cert () {
+    # Create a self-signed certificate to use for the local server
+
+    openssl req -x509 \
+        -newkey rsa:4096 \
+        -days 365 \
+        -nodes \
+        -subj "/C=US/ST=Utah/L=Ogden/O=ACME, Inc./OU=Org/CN=localhost" \
+        -keyout "/tmp/${NAME}.key" \
+        -out "/tmp/${NAME}.crt" \
+        2>/dev/null
+}
+
+index () {
+    # Return an HTML response (containing the listing of available functions)
+
+    _rep '200 Ok' 'Content-Type: text/html'
+    cat <<EOF
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>${NAME}</title>
+        <meta charset=utf-8>
+    </head>
+    <body>
+        <h1>${NAME}</h1>
+        <ul>
+$(_all_funcs | xe printf '<li>%s</li>\n')
+        </ul>
+    </body>
+</html>
+EOF
+}
+
+favicon () {
+    # Return a SVG image response suitable for use as a favicon
+
+    _rep '200 Ok' 'Content-Type: image/svg+xml'
+
+    printf '<?xml version="1.0" standalone="yes"?>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <text y=".9em" font-size="90">🧪 </text>
+    </svg>
+    '
+}
+
+notfound () {
+    # Return a 404 response
+
+    _rep '404 Not Found'
+}
+
+get () {
+    # Return a 200 response for a GET request or 405 response otherwise
+
+    case "$1" in
+        'GET') _rep '200 Ok';;
+        *) _rep '405 Method Not Allowed';;
+    esac
+}
+
+post () {
+    # Return a 200 response for a POST request or 405 response otherwise
+
+    case "$1" in
+        'POST') _rep '200 Ok';;
+        *) _rep '405 Method Not Allowed';;
+    esac
+}
+
+put () {
+    # Return a 200 response for a PUT request or 405 response otherwise
+
+    case "$1" in
+        'PUT') _rep '200 Ok';;
+        *) _rep '405 Method Not Allowed';;
+    esac
+}
+
+delete () {
+    # Return a 200 response for a DELETE request or 405 response otherwise
+
+    case "$1" in
+        'DELETE') _rep '200 Ok';;
+        *) _rep '405 Method Not Allowed';;
+    esac
+}
+
+status () {
+    # Return a response with the requested status code
+    #
+    # Usage:
+    #
+    #     /status/504
+
+    _rep "$2"
+}
+
+headers () {
+    # Return a response containing the headers from the request
+
+    _rep '200 Ok'
+    printf '%s\n' "$HEADERS"
+}
+
+user_agent () {
+    # Return a response containing the user agent from the request
+
+    _rep '200 Ok'
+    _hdrval "$HEADERS" 'user-agent'
+}
+
+gzip_ct () {
+    # Return a gzipped response body and content type
+
+    _rep '200 Ok' 'Content-Encoding: gzip'
+    printf 'Hello from gzip.\n' | gzip
+}
+
+json_rep () {
+    # Return a JSON response body
+
+    _rep '200 Ok' 'Content-type: application/json'
+    printf '{
+  "foo": "Foo!",
+  "bar": 123,
+  "baz": [
+    "qux",
+    "quux"
+  ],
+  "quuz": {
+    "corge": true,
+    "grault": false
+  }
+}\n'
+}
+
+content_negotiation () {
+    # Negotiate a response body based on the accept header from the request
+
+    ctype="$(printf '%s\n' "$3" | awk '
+        BEGIN { FS=": " }
+        tolower($1) ~ /accept/ { accept = $2 }
+        END {
+            supported_types["application/json"] = "json_rep"
+            supported_types["text/html"] = "index"
+            supported_types["text/xml"] = "favicon"
+            supported_types["*/*"] = "index"
+
+            split(accept, preferred_formats, ", ")
+
+            for (ctype in preferred_formats) {
+                if (supported_types[accept]) {
+                    print supported_types[accept]
+                    exit
+                }
+            }
+        }
+    ')"
+
+    if [ -n "$ctype" ]; then
+        "$ctype" "$@"
+    else
+        _rep '406 Not Acceptable'
+    fi
+}
+
+echoserver () {
+    # Return a response that echos the method, headers, and body of the request
+
+    _rep '200 Ok'
+
+    printf 'Method: %s\n\n' "$1"
+    printf 'Request headers:\n\n%s\n' "$3"
+
+    printf '\nRequest body:\n\n'
+    cat
+}
+
+drip () {
+    # Return a slow HTTP response the streams data over ten seconds
+
+    local count=0
+    local len=10
+    local interval=1
+
+    # TODO: parse count, len, interval from qs.
+
+    _rep '200 Ok' \
+        'Content-Type: application/octet-stream' \
+        'Content-Length: 10'
+
+    while [ "$count" -lt "$len" ]; do
+        # Stop once the current process is stopped.
+        ps -p "$SOCAT_PID" 1>/dev/null 2>/dev/null
+        if [ $? -ne 0 ]; then break; fi
+
+        printf '*'
+        count=$(( count + 1 ))
+        sleep "$interval"
+    done
+}
+
+delay () {
+    # Return a response after waiting for a specified number of seconds
+    #
+    # Note: 0 or INF can be supplied but the server will need to be manually
+    # killed.
+    #
+    # Usage:
+    #
+    #     /delay/15
+
+    _rep '200 Ok'
+    sleep "$2"
+}
+
+sse () {
+    # Return an infinite HTTP stream in the Server-sent Events format
+
+    local delay="${2:-1}"
+    local count=0
+
+    _rep '200 Ok' \
+        'Content-Type: text/event-stream' \
+        'Cache-Control: no-cache'
+
+    while true; do
+        # Stop once the current process is stopped.
+        ps -p "$SOCAT_PID" 1>/dev/null 2>/dev/null
+        if [ $? -ne 0 ]; then break; fi
+
+        printf 'data: {"timestamp": "%s", "count": %s}\n\n' \
+            "$(date --iso-8601=seconds -u)" "$count"
+
+        count=$(( count + 1 ))
+        sleep "$delay"
+    done
+}
+
+redirect_to () {
+    # Return a 302 redirect response with the given target URL
+    #
+    # Usage:
+    #
+    #     /redirect-to/<url here>
+
+    _rep '302' "Location: ${2}"
+}
+
+redirect_n () {
+    # Return the given number of 302 redirects before stopping
+    #
+    # Usage:
+    #
+    #     /redirect/3
+
+    local count="$2"
+    local location=''
+
+    # TODO: use SOCAT_SOCKADDR, SOCAT_SOCKPORT instead of relative?
+    count=$(( count - 1 ))
+    if [ "$count" -lt 1 ]; then
+        location='/'
+    else
+        location="/redirect/${count}"
+    fi
+
+    _rep '302' \
+        "Location: ${location}"
+}
+
+ip_addr () {
+    # Return the IP address of the request
+
+    _rep '200 Ok'
+    printf '%s\n' "$SOCAT_PEERADDR"
+}
+
+_hdrval () {
+    # Return the value for the given header
+
+    local HEADERS="${1:?'Headers string required.'}"
+    local hdr="${2:?'Desired header name required.'}"
+
+    printf '%s\n' "$HEADERS" | awk -v hdr="$hdr" '
+        BEGIN { FS = ": "; hdr = tolower(hdr); }
+        tolower($1) ~ hdr { print $2 }
+    '
+}
+
+_rep () {
+    # Output a response header of the given status and headers
+
+    local status="${1:?Status is required.}"
+    shift 1
+
+    printf 'HTTP/1.0 %s\r\n' "$status"
+    for hdr in "$@"; do
+        printf '%s\r\n' "$hdr"
+    done
+    printf '\r\n'
+}
+
+_http () {
+    # Process and route an HTTP request
+
+    local cmd
+    local HEADERS=''
+    local HTTP_METHOD=''
+    local HTTP_PATH=''
+    local HTTP_VERSION=''
+    local reqbody
+    local pathseg
+
+    read -r HTTP_METHOD HTTP_PATH HTTP_VERSION
+    HTTP_METHOD=$(printf '%s\n' "$HTTP_METHOD" | tr '[:lower:]' '[:upper:]')
+    HTTP_PATH=$(printf '%s\n' "$HTTP_PATH" | tr '[:upper:]' '[:lower:]')
+    printf '%s %s\n' "$HTTP_METHOD" "$HTTP_PATH" 1>&2
+
+    # Store all headers in a string.
+    while read -r hdr; do
+        [ "$hdr" = "$crlf" ] && break
+
+        if [ -z "$HEADERS" ]; then
+            HEADERS="$hdr"
+        else
+            HEADERS="${HEADERS}
+${hdr}"
+        fi
+    done
+    HEADERS="$(printf '%s\n' "$HEADERS" | tr -d '\r')"
+
+    case "$HTTP_PATH" in
+        '/favicon.ico') cmd=favicon;;
+
+        '/get') cmd=get;;
+        '/post') cmd=post;;
+        '/put') cmd=put;;
+        '/delete') cmd=delete;;
+
+        /status/*) cmd=status; pathseg="${HTTP_PATH#/status/}";;
+        '/headers') cmd=headers;;
+        '/user-agent') cmd=user_agent;;
+        '/echo') cmd=echoserver;;
+        '/ip') cmd=ip_addr;;
+
+        '/gzip') cmd=gzip_ct;;
+        '/html') cmd=index;;
+        '/json') cmd=json_rep;;
+        '/xml') cmd=favicon;;
+        '/ctype') cmd=content_negotiation;;
+
+        '/drip') cmd=drip;;
+        /delay/*) cmd=delay; pathseg="${HTTP_PATH#/delay/}";;
+        /sse/*) cmd=sse; pathseg="${HTTP_PATH#/sse/}";;
+
+        /redirect-to/*) cmd=redirect_to; pathseg="${HTTP_PATH#/redirect-to/}";;
+        /redirect/*) cmd=redirect_n; pathseg="${HTTP_PATH#/redirect/}";;
+
+        '/') cmd=index;;
+        *) cmd=notfound;;
+    esac
+
+    # The only way to know when the request is finished is if there is
+    # a content-length header. If missing assume no request body.
+    local clen="$(_hdrval "$HEADERS" 'content-length')"
+    if [ -z "$clen" ]; then clen=0; fi
+
+    dd bs=1 count="$clen" 2>/dev/null \
+        | "$cmd" "$HTTP_METHOD" "$pathseg" "$HEADERS"
+}
+
+_main () {
+    # ## Usage
+    #
+    # `NAME [<flags>] (command [<arg>, <name=value>...])`
+    #
+    #     NAME -h              # Short, usage help text.
+    #     NAME help command    # Command-specific help text.
+    #     NAME command         # Run a command without and with args:
+    #     NAME command foo bar baz=Baz qux='Qux arg here'
+    #
+    # Flag | Description
+    # ---- | -----------
+    # -h   | Show this screen.
+    # -x   | Enable xtrace debug logging.
+    # -p   | Port to listen for HTTP requests.
+    # -s   | Use SSL.
+    #
+    # Flags _must_ be the first argument to `NAME`, before `command`.
+
+    local opt
+    local OPTARG
+    local OPTIND
+
+    local cmd
+    local ret
+
+    trap '
+        excode=$?; trap - EXIT;
+        exit $excode
+    ' INT TERM EXIT
+
+    local listen="TCP-LISTEN"
+    local port="8000"
+    local ssl=""
+
+    while getopts hxp:s opt; do
+        case $opt in
+        h) help _main
+           printf '\nAvailable commands:\n\n'
+           _all_funcs | sort
+           printf '\n'
+           exit;;
+        p) port="$OPTARG";;
+        s) _mk_cert;
+            ssl=",cert=/tmp/${NAME}.crt,key=/tmp/${NAME}.key,verify=0";
+            listen="OPENSSL-LISTEN";
+            ;;
+        x) set -x;;
+        esac
+    done
+    shift $(( OPTIND - 1 ))
+
+    if [ $# -eq 0 ]; then
+        printf '%s on port %s\n' "$listen" "$port"
+        socat "${listen}:${port},fork,reuseaddr${ssl}" EXEC:"${0} _http"
+    else
+        cmd="$1"
+        shift 1
+        "$cmd" "$@"
+    fi
+}
+
+_main "$@"

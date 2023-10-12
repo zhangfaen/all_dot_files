@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+# Use a fuzzy-finder to complete encodings for iconv
+
+iconv -l | fzy -p 'Encodings > ' | xe printf '%s %s\n' "$*"

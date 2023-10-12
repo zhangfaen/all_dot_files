@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <title></title>
+
+        <link href="./foo.css" rel="stylesheet">
+        <script>
+            function ready(fn) {
+                if (document.readyState !== 'loading') {
+                    init();
+                } else {
+                    document.addEventListener('DOMContentLoaded', init);
+                }
+            }
+        </script>
+
+        <script type="importmap">
+        {
+            "imports": {
+                "lodash": "https://esm.sh/lodash",
+                "preact": "https://esm.sh/preact",
+                "rx": "https://esm.sh/rx"
+            }
+        }
+        </script>
+
+        <script type="module">
+            import _ from 'lodash';
+            import Rx from 'rx';
+            import { h, Component, render } from 'preact';
+
+            const app = h('div', null, [
+                h('h1', null, _.toUpper('Hello World!')),
+            ]);
+
+            render(app, document.querySelector('#container'));
+        </script>
+    </head>
+
+    <body>
+        <div id="container"></div>
+    </body>
+</html>

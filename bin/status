@@ -1,0 +1,154 @@
+#!/usr/bin/env sh
+# Collect various system stats for feeding into a status bar
+#
+# Run without args to start loop that updates the osd. Or invoke individual
+# status outputs.
+#
+# Usage:
+#
+#       status
+#       status all
+#       status battery
+
+while getopts h opt; do
+    case $opt in
+    h) awk 'NR == 1 { next } /^$/ { exit } { print substr($0, 3) }' "$0"
+       exit ;;
+    esac
+done
+shift $(( OPTIND - 1 ))
+
+curdate () {
+    date +'%H:%M %a, %b %d'
+}
+
+load () {
+    awk '{ print $1, $2, $3 }' < /proc/loadavg
+}
+
+ram () {
+    awk '
+    /MemTotal/ { total = $2 }
+    /MemFree/ { free = $2 }
+    /^Buffers/ { buffers = $2 }
+    /^Cached/ { cached = $2 }
+    END {
+        printf("%2.0f%%\n", 100 * (total - free - cached - buffers) / total)
+    }
+    ' < /proc/meminfo
+}
+
+wifi () {
+    nmcli --terse con show --active | awk -F: '/:wl/ { printf("%s", $1) }'
+    printf ' '
+    awk 'NR == 3 { printf("%2.0f%%\n", $3) }' < /proc/net/wireless
+
+    # nmcli -f SSID,BARS dev wifi list \
+    #     | awk 'NR == 2 { print "W: " $1, $2; exit }'
+}
+
+battery () {
+    upower -i $(upower -e | grep 'BAT') | awk -F: '
+    function ltrim(s) { sub(/^[ \t\r\n]+/, "", s); return s }
+    { $1 = ltrim($1); $2 = ltrim($2) }
+    $1 == "state" {
+        if ($2 == "charging") state = "+"
+        if ($2 == "fully-charged") state = "·"
+        if ($2 == "discharging") state = "-"
+    }
+    $1 == "percentage" { pct = $2 }
+    $1 ~ "time" {
+        time = $2
+        sub(/minutes/, "m", time)
+        sub(/hours/, "h", time)
+    }
+    END {
+        printf("%s%s%s\n", state, pct, (time ? " (" time ")" : ""))
+    }
+    '
+}
+
+speaker () {
+    sink=$(pacmd stat | awk -F': ' '/Default sink/ { print $2 }')
+
+    pactl list sinks | awk -v sink="$sink" '
+        $0 ~ sink { found=1 }
+        !found { next }
+        /Mute: / && $2 ~ "yes" { muted="!" }
+        /\tVolume: / {
+            printf("%s%s\n", $5, muted)
+            exit
+        }
+    '
+}
+
+mic () {
+    sour=$(pacmd stat | awk -F': ' '/Default source/ { print $2 }')
+
+    pactl list sources | awk -v sink="$sour" '
+        $0 ~ sink { found=1 }
+        !found { next }
+        /Mute: / && $2 ~ "yes" { muted="!" }
+        /\tVolume: / {
+            printf("%s%s\n", $5, muted)
+            exit
+        }
+    '
+}
+
+window_count () {
+    wmctrl -l | wc -l
+}
+
+vdesktop () {
+    xprop -root | awk -F' = ' '
+    $1 ~ "_NET_CURRENT_DESKTOP" { print $2 }
+    '
+}
+
+temp () {
+    for tzone in /sys/class/thermal/*; do
+        if [ -r "${tzone}/temp" ]; then echo \
+            "$(cat "${tzone}/type"):" \
+            "$(cat "${tzone}/temp" 2>/dev/null \
+                | xargs -r -I{} units -t1 '{} milli degC' degF)°"
+        fi
+    done
+}
+
+all () {
+    printf '[%s, %s]' "$(vdesktop)" "$(window_count)"
+    printf '  '
+
+    printf '%s' "$(curdate)"
+    printf '  |  '
+
+    printf 'W: %s' "$(wifi)"
+    printf '  |  '
+
+    printf 'V: %s' "$(speaker)"
+    printf '  '
+    printf 'M: %s' "$(mic)"
+    printf '  |  '
+
+    printf 'B: %s' "$(battery)"
+    printf '\n';
+}
+
+_main () {
+    if [ $# -ne 0 ]; then
+        cmd="$1"
+        shift
+        "$cmd" "$@"
+        exit $?
+    fi
+
+    {
+        while : ; do
+            all
+            sleep 5
+        done;
+    } | osd_cat -l 1 -c gray -d 0 -f -*-fixed-medium-*-*-*-14-*-*-*-*-*-*-*
+}
+
+_main "$@"

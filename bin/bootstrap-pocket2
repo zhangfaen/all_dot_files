@@ -1,0 +1,49 @@
+#!/usr/bin/env sh
+# Bootstrap a new Pocket 2 machine
+# Mostly thanks to https://github.com/joshskidmore/gpd-pocket-2-arch-guide
+
+cat $HOME/opt/{packages-fedora,packages-pocket2} \
+    | xe -N0 dnf install -y
+
+# Add Yubikey detection.
+cat > /etc/udev/rules.d/70-u2f.rules <<'EOF'
+ACTION!="add|change", GOTO="u2f_end"
+# Yubico YubiKey
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1050", ATTRS{idProduct}=="0113|0114|0115|0116|0120|0200|0402|0403|0406|0407|0410", TAG+="uaccess", GROUP="plugdev", MODE="0660"
+LABEL="u2f_end"
+EOF
+
+# Rotate the framebuffer by defualt and disable plymouth (graphical boot).
+sed -i -e '/GRUB_CMDLINE_LINUX/ s/quiet"$/fbcon=rotate:1 rd.plymouth=0 plymouth.enable=0 quiet"/' /etc/default/grub
+grub2-mkconfig -o /boot/grub2/grub.cfg
+
+# Set up X server for the unique display.
+cat > /etc/X11/xorg.conf.d/20-intel.conf <<'EOF'
+Section "Device"
+	Identifier "Intel Graphics"
+	Driver "intel"
+	Option "AccelMethod" "sna"
+	Option "TearFree" "true"
+        # Use DRI 2 to avoid a severe rendering flicker in Chrome.
+	Option "DRI" "2"
+EndSection
+EOF
+
+cat > /etc/X11/xorg.conf.d/30-display.conf <<'EOF'
+Section "Monitor"
+	Identifier "eDP1"
+	Option "Rotate" "right"
+EndSection
+Section "Monitor"
+	Identifier "eDP-1"
+	Option "Rotate" "right"
+EndSection
+EOF
+
+cat > /etc/X11/xorg.conf.d/99-touchscreen.conf <<'EOF'
+Section "InputClass"
+	Identifier "calibration"
+	MatchProduct "Goodix Capacitive TouchScreen"
+	Option "TransformationMatrix" "0 1 0 -1 0 1 0 0 1"
+EndSection
+EOF

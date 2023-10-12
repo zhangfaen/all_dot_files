@@ -1,0 +1,6 @@
+show-warnings: no
+new-blocklevel-tags:
+custom-tags: yes
+indent: auto
+indent-spaces: 2
+wrap: 120

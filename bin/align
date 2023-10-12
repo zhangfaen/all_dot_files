@@ -1,0 +1,12 @@
+#!/bin/sh
+# Align columns at CHAR
+#
+# Useful in Vim. Requires column from util-linux or bsdextrautils.
+#
+# Usage (align stdin on the = character):
+#     !align =
+#
+# http://leahneukirchen.org/dotfiles/bin/align
+
+CHAR=${1:?'Missing character to align on.'}; shift
+exec column -t -s "$CHAR" -o "$CHAR" "$@"

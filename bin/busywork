@@ -1,0 +1,424 @@
+#!/usr/bin/env sh
+# Silly functions to make a terminal look busy like in a movie
+#
+# Usage (list available commands with -h):
+#
+#     busywork
+#     busywork spinner_demo
+#     busywork <cmd>
+
+NAME=$(basename "$0")
+
+if [ -e '/usr/share/dict/words' ]; then
+    wordfile='/usr/share/dict/words'
+else
+    wordfile="${HOME}/share/doc/dotfiles/metasyntactic.txt"
+fi
+
+hexstream () {
+    # https://www.commandlinefu.com/commands/view/6732/pretend-to-be-busy-in-office-to-enjoy-a-cup-of-coffee
+
+    while true; do
+        head -n 100 /dev/urandom
+        sleep .1
+    done | hexdump -C | grep 'ca fe'
+}
+
+progress () {
+    # Show a progress bar
+
+    local cur=0
+    local tot=23
+    local rem="$tot"
+    local pct=0
+    local skip=0
+
+    printf '\e[?25l'
+
+    printf '[-%*s] ' "$tot"
+    printf '%3s%%' "$pct"
+    while
+        printf '\e[%sG=' $(( cur + 2 ))
+        printf '\e[%sG%3s%% ' $(( tot + 5 )) "$pct"
+        printf '\e[%sG%s\e[0K' $(( tot + 10 )) \
+            "$(shuf -n $(echol 1 2 3 | shuf -n1) "$wordfile" |
+                tr -cd '[[:alnum:]]-_ \n' |
+                paste - - - -d' ')"
+
+        [ "$cur" -eq "$tot" ] && break
+
+        skip=$(( skip + 1 )) # make the text go faster than the progress
+        if [ "$skip" -eq 3 ]; then
+            skip=0
+            cur=$(( cur + 1 ))
+            rem=$(( rem - 1 ))
+            pct=$(( 100 * cur / tot + (1000 * cur / tot % 10 >= 5 ? 1 : 0) ))
+        fi
+        sleep 0.05
+    do :; done
+
+    printf '\e[?25h\n'
+}
+
+spinner () {
+    # Show different kinds of activity spinners
+    # (See source for full list.)
+
+    local anim="$1"
+    local pad=1
+    while true; do
+        case "$anim" in
+            balloon)
+                set -- '.' 'o' 'O' '@' '*'
+                ;;
+            ball)
+                set -- '_' 'o' 'O' 'o'
+                ;;
+            bounce)
+                set -- \
+                    '(*----)' \
+                    '(-*---)' \
+                    '(--*--)' \
+                    '(---*-)' \
+                    '(----*)' \
+                    '(---*-)' \
+                    '(--*--)' \
+                    '(-*---)'
+                pad=7
+                ;;
+            blink)
+                set -- \
+                    $(yes '(o)(o) ' | head -n 30 | tr -d '\n') \
+                    '(-)(-)' \
+                    '(_)(_)' \
+                    '(-)(-)'
+                pad=6
+                ;;
+            hypnotoad)
+                set -- \
+                    '(O)(o)' \
+                    '(o)(O)'
+                pad=6
+                ;;
+            fish)
+                set -- \
+                    '><{{{*>' \
+                    '|<{{{*>'
+                pad=7
+                ;;
+            ansi)
+                set -- '┤' '┘' '┴' '└' '├' '┌' '┬' '┐'
+                ;;
+            vee)
+                set -- '<' '^' '>' 'v'
+                ;;
+            dots)
+                set -- '.' '..' '...' '....'
+                pad=4
+                ;;
+            cells)
+                set -- 'o' '0' '8' 'oo' '00' '88'
+                pad=2
+                ;;
+            plus)
+                set -- 'x' '+'
+                ;;
+            db)
+                set -- 'd' '|' 'b' '|'
+                ;;
+            qp)
+                set -- 'q' '|' 'p' '|'
+                ;;
+            alpha)
+                set -- a b c d e f g h i j k l m n o p q r s t u v w x y z
+                ;;
+            tminus)
+                set -- 9 8 7 6 5 4 3 2 1 0
+                ;;
+            spin)
+                set -- '/' '-' '\' '|'
+                ;;
+            *)
+                printf 'Not found\n' 1>&2
+                exit 1
+                ;;
+        esac
+
+        while [ $# -gt 0 ]; do
+            printf '\e[%sD%-'"$pad"'s' "$pad" "$1"
+            shift
+            sleep 0.1
+        done
+    done
+}
+
+spinner_demo () {
+    # Show all spinners
+
+    tmux neww
+    printf '%s\n' balloon ball bounce blink hypnotoad fish ansi vee dots \
+        cells plus db qp alpha tminus spin \
+    | xargs -n1 tmux splitw -t 0 -l 1 "$0" spinner
+
+    tmux selectp -t 0
+}
+
+green_matrix () {
+    # https://www.commandlinefu.com/commands/view/4352/another-matrix-style-implementation
+
+    tr -c '[:digit:]' ' ' < /dev/urandom \
+        | dd cbs=$(tput cols) conv=unblock 2>/dev/null \
+        | GREP_COLOR='1;32' grep --color '[^ ]'
+}
+
+hexgrid () {
+    # https://www.commandlinefu.com/commands/view/11904/generate-30-x-30-matrix
+
+    hexdump -v -e '"%u"' </dev/urandom \
+        | fold -50 \
+        | head -n 20 \
+        | sed 's/\(.\{2\}\)/\1 /g'
+}
+
+_shuf () {
+    # Reservoir sampling to choose random items in one pass.
+
+    awk -v K="${1:?'Missing count'}" -v seed="$(date +%N)" '
+    BEGIN { srand(seed) }
+    {
+        n = NR - 1
+        if (n < K) { results[n] = $0 }
+        else {
+            s = int(rand() * n)
+            if (s < K) { results[s] = $0 }
+        }
+    }
+    END { for (i in results) print results[i] }
+    '
+}
+
+_timed_sequence() {
+    # Output after a delay
+
+    local start="${1:?'Missing start.'}"
+    local end="${2:?'Missing end.'}"
+    local delay="${3:?'Missing delay.'}"
+    while [ "$start" -le "$end" ]; do
+        printf '%3s%%\t%s\t%s\n' \
+            $(( 200 * start / end % 2 + 100 * start / end )) \
+            "$start" \
+            "$end"
+        start=$(( start + 1 ))
+        sleep "$delay"
+    done
+}
+
+_flip() {
+    # Flip a coin
+
+    return $(shuf -i 0-1 -n 1)
+}
+
+git_range () {
+    # Fake a git commit range
+
+    hexdump -n 8 -e '4/1 "%02x" ".." 4/1 "%02x" "\n"' /dev/urandom
+}
+
+git_fetch () {
+    # Show a fake git fetch sequence of events
+
+    local tot_obj="$(shuf -i 10-900 -n 1)"
+    local tot_reu="$(shuf -i "10-${tot_obj}" -n 1)"
+    printf 'Fetching origin\n'
+
+    _timed_sequence 0 "$tot_obj" 0.001 |
+        cut -f2 |
+        xargs printf '\e[1Gremote: Enumerating objects: %3s'
+    printf ', done.\n'
+
+    _timed_sequence 0 "$tot_obj" 0.001 |
+        xargs printf '\e[1Gremote: Counting objects: %3s (%s/%s)'
+    printf ', done.\n'
+
+    _timed_sequence 0 "$tot_reu" 0.001 |
+        xargs printf '\e[1Gremote: Compressing objects: %3s (%s/%s)'
+    printf ', done.\n'
+
+    local net=$(shuf -i 90-450 -n 1)
+    local disk=$(shuf -i 6-17 -n 1)
+    _timed_sequence 0 "$tot_obj" 0.01 | while read -r pct x y; do
+        printf '\e[1GReceiving objects: %3s (%s/%s), ' "$pct" "$x" "$y"
+        printf '%s KiB | %s MiB/s' "$net" "$disk"
+
+        _flip
+        if [ $? -eq 0 ]; then
+            if [ $(expr $x % 7) -eq 0 ]; then
+                _flip
+                if [ $? -eq 0 ]; then
+                    net=$(( net + 3 )); disk=$(( disk + 1 ))
+                else
+                    net=$(( net - 3 )); disk=$(( disk - 1 ))
+                fi
+            fi
+        fi
+    done
+    printf ', done.\n'
+
+    _timed_sequence 0 "$tot_reu" 0.001 |
+        xargs printf '\e[1GResolving deltas: %3s (%s/%s)'
+    printf ', completed with %s local objects.\n' "$tot_reu"
+
+    shuf -n 4 "$wordfile" |
+        tr -cd '[[:alnum:]]-_ \n' |
+        tr '[:upper:]' '[:lower:]' |
+        xargs printf 'From %s/%.3s:%s/%s\n'
+
+    {
+        shuf -n $(shuf -i 1-20 -n 1) "$wordfile" |
+            tr -cd '[[:alnum:]]-_ \n' |
+            tr '[:upper:]' '[:lower:]' |
+            while read -r w; do
+                local r=''; local f=''
+                local t=$(printf '*******++       \n' | echoc | shuf -n 1)
+
+                case "$t" in
+                    '*') r='[new branch]';;
+                    *) r=$(git_range);;
+                esac
+                case "$t" in
+                    '+') f=' (forced update)';;
+                esac
+
+                printf '%s\t%s\t%s\t%s\n' "$t" "$r" "$w" "origin/${w}${f}"
+            done
+
+        shuf -i 1-9 -n $(shuf -i 0-13 -n 1) | xargs -n2 |
+            while read -r x y; do
+                printf '%s\t%s\t%s\t%s\n' \
+                    '*' '[new tag]' "v$x.${y:-0}" "v$x.${y:-0}"
+            done;
+    } | awk -F'\t' '{ printf("%3s %-18s  %-20s -> %s\n", $1, $2, $3, $4) }'
+}
+
+git_ff () {
+    # Show a fake git fast-forward merge output
+
+    count="$(shuf -i 1-100 -n 1)"
+    printf 'Updating %s\nFast-forward\n' $(git_range)
+
+    shuf -n "$count" "$wordfile" |
+        tr -cd '[[:alnum:]]-_ \n' |
+        awk -v seed="$(date +%N)" -v cols="$(tput cols)" '
+    function count(arr) {
+        for (i in arr) c += 1
+        return c
+    }
+    function r(min, max, addtl_seed) {
+        srand(seed + addtl_seed)
+        return int(min + rand() * (max - min + 1))
+    }
+
+    BEGIN { num_items = r(1, 3) }
+
+    num_items != 0 {
+        items = items sep tolower($0)
+        num_items -= 1
+        sep = "/"
+    }
+    num_items == 0 {
+        fname = sprintf("%s.%c%c",
+            items,
+            r(97, 122, NR + 1),
+            r(97, 122, NR + 2))
+
+        git_files[NR] = fname
+
+        len = length(fname)
+        if (len > longest_item) longest_item = len
+
+        num_items = r(1, 3, NR)
+        items = ""
+        sep = ""
+    }
+
+    END {
+        rem = cols - longest_item - 9
+        for (i in git_files) {
+            printf(" %-" longest_item "s | ", git_files[i])
+
+            added = r(0, rem, i + 1)
+            tot_added += added
+            a=sprintf("%" added "s",""); gsub(/ /,"+",a)
+            removed = r(0, rem - added, i - 1)
+            tot_removed += removed
+            d=sprintf("%" removed "s",""); gsub(/ /,"-",d)
+            printf("%3s \033[0;32m%s\033[0;31m%s\033[0m", \
+                added + removed, a, d)
+
+            printf("\n")
+        }
+
+        print count(git_files), "files changed,", \
+            tot_added, "insertions(+),", \
+            tot_removed, "deletions(-)"
+    }
+    '
+}
+
+demo () {
+    # Run all commands in a loop in a new tmux window
+
+    tmux neww
+    tmux splitw -h -l 79 busywork hexstream
+    tmux splitw -t 1 -l 8 busywork green_matrix
+    tmux splitw -t 1 -l 3 'while true; do busywork progress; sleep 3; done'
+    tmux splitw -t 1 -l 12 'while true; do busywork hexgrid; sleep 5; done'
+    tmux splitw -t 0 'while true; do busywork git_ff; sleep 3; done'
+    tmux splitw -t 0 'while true; do busywork git_fetch; sleep 3; done'
+    tmux selectp -t 0
+    tmux killp -t 0
+}
+
+help () {
+    # Extract contiguous lines of comments in a function as help text
+
+    awk -v cmd="${1:?'Command name required.'}" -v NAME="$NAME" '
+    $0 ~ "^" cmd "\\s*\\(\\)\\s*{" { is_found=1; next }
+    is_found && !NF { exit }
+    is_found { gsub(/^\s*#\s?/, ""); gsub(/NAME/, NAME); print; }
+    ' "$0"
+}
+
+_all_funcs () {
+    # List all public function names in the current file
+
+    awk '$1 !~ /^_/ && /^[a-zA-Z0-9_]+\s*\(\)/ { print $1 }' "$0"
+}
+
+_main () {
+    # Silly functions to make a terminal look busy like in a movie
+    #
+    # Usage:
+    #
+    #     NAME <cmd>
+    #     NAME -h
+
+    while getopts hx opt; do
+        case $opt in
+        h) help _main
+           printf '\nAvailable commands:\n\n'
+           _all_funcs | sort
+           printf '\n'
+           exit;;
+        x) set -x;;
+        esac
+    done
+    shift $(( OPTIND - 1 ))
+
+    cmd="${1:-demo}"
+    [ $# -gt 0 ] && shift 1
+    "$cmd" "$@"
+}
+
+_main "$@"
